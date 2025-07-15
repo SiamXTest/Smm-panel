@@ -1,62 +1,63 @@
 from flask import Flask, request, jsonify
 import os, json, time
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 import undetected_chromedriver as uc
+from selenium.webdriver.chrome.options import Options
 
 app = Flask(__name__)
-ACCOUNTS_DIR = "fb_accounts"
 
-@app.route("/fbfollow", methods=["GET"])
-def fbfollow():
+@app.route('/fbfollow', methods=['GET'])
+def fb_follow():
     follower = request.args.get("follower")
     amount = int(request.args.get("amount", 1))
-
+    
     if not follower:
         return jsonify({"error": "Missing follower link"}), 400
-
-    files = os.listdir(ACCOUNTS_DIR)[:amount]
+    
     results = []
 
-    for filename in files:
-        path = os.path.join(ACCOUNTS_DIR, filename)
-        with open(path) as f:
-            acc = json.load(f)
-        status = follow_user(follower, acc["cookie"], acc["useragent"])
-        results.append({ "account": filename, "status": status })
+    # একাউন্ট ফাইলগুলো নির্বাচন
+    files = [f for f in os.listdir() if f.endswith(".json")][:amount]
 
-    return jsonify({"success": True, "results": results})
+    for file in files:
+        with open(file, "r") as f:
+            cookies = json.load(f)
+        status = follow_user(follower, cookies)
+        results.append({ "account": file, "status": status })
 
-def follow_user(target_link, cookie_str, useragent):
+    return jsonify({ "success": True, "results": results })
+
+def follow_user(target_url, cookies):
     try:
         options = uc.ChromeOptions()
-        options.add_argument(f'user-agent={useragent}')
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
 
         driver = uc.Chrome(options=options)
+        driver.get("https://www.facebook.com")
+        time.sleep(2)
 
-        # Add cookies
-        driver.get("https://facebook.com")
-        driver.delete_all_cookies()
-        for item in cookie_str.split(";"):
-            name, value = item.strip().split("=", 1)
-            driver.add_cookie({"name": name, "value": value, "domain": ".facebook.com"})
+        # Add cookies one by one
+        for cookie in cookies:
+            cookie.pop("hostOnly", None)
+            cookie["secure"] = True
+            cookie["httpOnly"] = True
+            cookie["sameSite"] = 'Lax'
+            driver.add_cookie(cookie)
 
-        driver.get(target_link)
-        time.sleep(3)
+        # Refresh page after adding cookies
+        driver.get(target_url)
+        time.sleep(5)
 
         try:
-            btn = driver.find_element("xpath", "//div[@aria-label='Follow']")
-            btn.click()
+            follow_button = driver.find_element("xpath", "//div[@aria-label='Follow']")
+            follow_button.click()
             time.sleep(2)
             driver.quit()
-            return "Followed"
+            return "Followed successfully"
         except:
             driver.quit()
             return "Follow button not found"
-
     except Exception as e:
         return f"Error: {str(e)}"
 
